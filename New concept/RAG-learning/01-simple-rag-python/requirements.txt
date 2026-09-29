@@ -1,0 +1,7 @@
+langchain==0.3.7
+langchain-openai==0.2.8
+langchain-community==0.3.7
+langchain-chroma==0.1.4
+chromadb==0.5.18
+python-dotenv==1.0.1
+unstructured[md]==0.16.5

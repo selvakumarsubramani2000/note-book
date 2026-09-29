@@ -1,0 +1,353 @@
+# gRPC Client Call Flow - Code Examples
+
+This document shows the actual code at each layer of the gRPC call flow.
+
+## 📋 Table of Contents
+1. [REST Controller Layer](#1-rest-controller-layer)
+2. [Core Service Layer](#2-core-service-layer)
+3. [gRPC Client Interface](#3-grpc-client-interface)
+4. [gRPC Client Implementation](#4-grpc-client-implementation)
+5. [Auto-Generated Stub](#5-auto-generated-stub)
+6. [gRPC Service Implementation](#6-grpc-service-implementation)
+7. [Data Service Layer](#7-data-service-layer)
+8. [Configuration](#8-configuration)
+
+---
+
+## 1. REST Controller Layer
+
+**File**: `AshleySupplierSupplierRestDomainGateway.Server/Controllers/InquiryCommonController.cs`
+
+<augment_code_snippet path="ashley-supplier-supplier-rest-domain-gateway/AshleySupplierSupplierRestDomainGateway.Server/Controllers/InquiryCommonController.cs" mode="EXCERPT">
+````csharp
+[ApiController]
+[Route("api/inquiry-common")]
+public class InquiryCommonController : ControllerBase
+{
+    private readonly IInquiryCommonCoreService _coreService;
+    
+    [HttpGet("statuses/{companyCode}")]
+    public async Task<ActionResult<StatusResponse>> GetStatuses(
+        [FromRoute] string companyCode,
+        [FromQuery] string? correlationId = null)
+    {
+        var response = await _coreService.GetStatuses(companyCode, correlationId);
+        return Ok(response);
+    }
+}
+````
+</augment_code_snippet>
+
+**What happens here**:
+- ✅ Receives HTTP GET request: `/api/inquiry-common/statuses/AFI`
+- ✅ Extracts `companyCode` from route parameter
+- ✅ Calls Core Service
+- ✅ Returns HTTP 200 OK with JSON response
+
+---
+
+## 2. Core Service Layer
+
+**File**: `AshleySupplierSupplierRestDomainGateway.Core/Services/InquiryCommonCoreService.cs`
+
+<augment_code_snippet path="ashley-supplier-supplier-rest-domain-gateway/AshleySupplierSupplierRestDomainGateway.Core/Services/InquiryCommonCoreService.cs" mode="EXCERPT">
+````csharp
+public class InquiryCommonCoreService : IInquiryCommonCoreService
+{
+    private readonly IInquiryCommonClient _inquiryCommonClient;
+
+    public async Task<StatusResponse> GetStatuses(string companyCode, string? correlationId = null)
+    {
+        Log.Information("GetStatuses request for company {CompanyCode}", companyCode);
+        var request = new StatusRequest
+        {
+            CorrelationId = correlationId ?? Guid.NewGuid().ToString()
+        };
+        return await _inquiryCommonClient.GetStatusesAsync(request, companyCode);
+    }
+}
+````
+</augment_code_snippet>
+
+**What happens here**:
+- ✅ Builds the gRPC `StatusRequest` object
+- ✅ Generates correlation ID if not provided
+- ✅ Calls injected `IInquiryCommonClient`
+- ✅ Passes `companyCode` as parameter (will become header)
+
+---
+
+## 3. gRPC Client Interface
+
+**File**: `AshleySupplierSupplierGrpcService.API/Interfaces/IInquiryCommonClient.cs`
+
+<augment_code_snippet path="ashley-supplier-supplier-grpc-service/AshleySupplierSupplierGrpcService.API/Interfaces/IInquiryCommonClient.cs" mode="EXCERPT">
+````csharp
+public interface IInquiryCommonClient
+{
+    Task<StatusResponse> GetStatusesAsync(StatusRequest request, string companyCode);
+    Task<StatusResponse> GetDomStatusesAsync(StatusRequest request, string companyCode);
+    Task<WarehouseResponse> GetWarehousesAsync(WarehouseRequest request, string companyCode);
+    // ... more methods
+}
+````
+</augment_code_snippet>
+
+**What happens here**:
+- ✅ Defines contract for gRPC client
+- ✅ Enables dependency injection and testing
+- ✅ All methods take `companyCode` for multi-tenancy
+
+---
+
+## 4. gRPC Client Implementation
+
+**File**: `AshleySupplierSupplierGrpcService.Client/Clients/InquiryCommonClient.cs`
+
+<augment_code_snippet path="ashley-supplier-supplier-grpc-service/AshleySupplierSupplierGrpcService.Client/Clients/InquiryCommonClient.cs" mode="EXCERPT">
+````csharp
+public class InquiryCommonClient : IInquiryCommonClient
+{
+    private readonly InquiryCommonService.InquiryCommonServiceClient _stub;
+
+    private InquiryCommonClient(GrpcChannel channel)
+    {
+        _stub = new InquiryCommonService.InquiryCommonServiceClient(channel);
+    }
+
+    public static InquiryCommonClient Of(string host)
+    {
+        return new InquiryCommonClient(GrpcChannel.ForAddress(host));
+    }
+    
+    private Metadata CreateHeaders(string companyCode)
+    {
+        var headers = new Metadata
+        {
+            { "CompanyCode", companyCode }
+        };
+        return headers;
+    }
+
+    public async Task<StatusResponse> GetStatusesAsync(StatusRequest request, string companyCode)
+    {
+        return await _stub.GetStatusesAsync(request, headers: CreateHeaders(companyCode));
+    }
+}
+````
+</augment_code_snippet>
+
+**What happens here**:
+- ✅ Factory pattern: `Of(url)` creates instance with gRPC channel
+- ✅ Wraps auto-generated stub
+- ✅ **Injects CompanyCode header** via `CreateHeaders()`
+- ✅ Calls stub with request + headers
+
+---
+
+## 5. Auto-Generated Stub
+
+**File**: Auto-generated from `inquiry-common.proto`
+
+```csharp
+// This code is auto-generated by protoc (Protocol Buffers compiler)
+namespace AshleySupplierSupplierGrpcService.API
+{
+    public partial class InquiryCommonService
+    {
+        public class InquiryCommonServiceClient : ClientBase<InquiryCommonServiceClient>
+        {
+            public InquiryCommonServiceClient(ChannelBase channel) : base(channel)
+            {
+            }
+
+            public virtual AsyncUnaryCall<StatusResponse> GetStatusesAsync(
+                StatusRequest request, 
+                Metadata headers = null, 
+                DateTime? deadline = null, 
+                CancellationToken cancellationToken = default)
+            {
+                return CallInvoker.AsyncUnaryCall(
+                    __Method_GetStatuses, 
+                    null, 
+                    options, 
+                    request);
+            }
+        }
+    }
+}
+```
+
+**What happens here**:
+- ✅ Auto-generated from `.proto` files
+- ✅ Handles Protobuf serialization/deserialization
+- ✅ Manages HTTP/2 transport
+- ✅ Sends headers as gRPC metadata
+
+---
+
+## 6. gRPC Service Implementation
+
+**File**: `AshleySupplierSupplierGrpcService.Server/Grpc/InquiryCommonServiceGrpcImpl.cs`
+
+<augment_code_snippet path="ashley-supplier-supplier-grpc-service/AshleySupplierSupplierGrpcService.Server/Grpc/InquiryCommonServiceGrpcImpl.cs" mode="EXCERPT">
+````csharp
+public class InquiryCommonServiceGrpcImpl : API.InquiryCommonService.InquiryCommonServiceBase
+{
+    private readonly IInquiryCommonDataService _dataService;
+    private readonly ILogger<InquiryCommonServiceGrpcImpl> _logger;
+
+    public override async Task<StatusResponse> GetStatuses(StatusRequest request, ServerCallContext context)
+    {
+        try
+        {
+            _logger.LogInformation("GetStatuses request: CorrelationId={CorrelationId}", request.CorrelationId);
+
+            // Extract CompanyCode from headers
+            var companyCode = GetCompanyCodeFromHeaders(context);
+            
+            // Call Data Service
+            var statuses = await _dataService.GetStatusesAsync(companyCode);
+
+            // Build response
+            var response = new StatusResponse
+            {
+                CorrelationId = request.CorrelationId,
+                Success = true
+            };
+            
+            foreach (var status in statuses)
+            {
+                response.Data.Add(new API.Status
+                {
+                    StatusCode = status.StatusCode,
+                    StatusDescription = status.StatusDescription,
+                    IsActive = status.IsActive
+                });
+            }
+            
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in GetStatuses: {Message}", ex.Message);
+            throw new RpcException(new GrpcStatus(StatusCode.Internal, $"Error: {ex.Message}"));
+        }
+    }
+    
+    private string GetCompanyCodeFromHeaders(ServerCallContext context)
+    {
+        var companyCodeHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "companycode");
+        return companyCodeHeader?.Value ?? "AFI";
+    }
+}
+````
+</augment_code_snippet>
+
+**What happens here**:
+- ✅ Extends auto-generated base class
+- ✅ **Extracts CompanyCode from headers** via `context.RequestHeaders`
+- ✅ Calls data service with CompanyCode
+- ✅ Maps domain models to proto response objects
+- ✅ Catches exceptions and converts to `RpcException`
+
+---
+
+## 7. Data Service Layer
+
+**File**: `AshleySupplierSupplierGrpcService.Core/Services/InquiryCommonDataService.cs`
+
+<augment_code_snippet path="ashley-supplier-supplier-grpc-service/AshleySupplierSupplierGrpcService.Core/Services/InquiryCommonDataService.cs" mode="EXCERPT">
+````csharp
+public class InquiryCommonDataService : IInquiryCommonDataService
+{
+    private readonly IConfiguration _configuration;
+    
+    public async Task<List<StatusModel>> GetStatusesAsync(string companyCode)
+    {
+        var connectionString = GetConnectionString(companyCode);
+        
+        using var connection = new SqlConnection(connectionString);
+        using var command = new SqlCommand("dbo.usp_GetStatuses", connection)
+        {
+            CommandType = CommandType.StoredProcedure
+        };
+        
+        await connection.OpenAsync();
+        using var reader = await command.ExecuteReaderAsync();
+        
+        var statuses = new List<StatusModel>();
+        while (await reader.ReadAsync())
+        {
+            statuses.Add(new StatusModel
+            {
+                StatusCode = reader.GetString("StatusCode"),
+                StatusDescription = reader.GetString("StatusDescription"),
+                IsActive = reader.GetBoolean("IsActive")
+            });
+        }
+        
+        return statuses;
+    }
+    
+    private string GetConnectionString(string companyCode)
+    {
+        return companyCode.ToUpper() switch
+        {
+            "AFI" => _configuration.GetConnectionString("AFIDatabase"),
+            "IMP" => _configuration.GetConnectionString("IMPDatabase"),
+            "AIMG" => _configuration.GetConnectionString("AIMGDatabase"),
+            _ => throw new ArgumentException($"Unknown company code: {companyCode}")
+        };
+    }
+}
+````
+</augment_code_snippet>
+
+**What happens here**:
+- ✅ **Multi-tenant database routing** via `GetConnectionString()`
+- ✅ Executes stored procedure
+- ✅ Maps `SqlDataReader` to domain models
+- ✅ Returns strongly-typed list
+
+---
+
+## 8. Configuration
+
+### REST Domain Gateway Registration
+
+**File**: `AshleySupplierSupplierRestDomainGateway.Server/Extensions/GrpcClientExtensions.cs`
+
+```csharp
+public static IServiceCollection AddGrpcClients(
+    this IServiceCollection services,
+    IConfiguration configuration)
+{
+    var grpcServiceUrl = configuration["CoreServices:AshleySupplierSupplierGrpcService:Url"];
+
+    if (string.IsNullOrWhiteSpace(grpcServiceUrl))
+    {
+        throw new InvalidOperationException("gRPC service URL not configured");
+    }
+
+    services.AddSingleton<IInquiryCommonClient>(provider =>
+        InquiryCommonClient.Of(grpcServiceUrl));
+
+    return services;
+}
+```
+
+### Configuration File
+
+**File**: `appsettings.json`
+
+```json
+{
+  "CoreServices": {
+    "AshleySupplierSupplierGrpcService": {
+      "Url": "http://localhost:5001"
+    }
+  }
+}
+```
+
